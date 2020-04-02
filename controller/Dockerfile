@@ -1,8 +1,4 @@
-FROM python:3
+FROM term-project-base
 WORKDIR /usr/src/app
-RUN apt-get update
-RUN apt-get install -y git sqlite3 unzip
-COPY . .
-RUN pip3 install --no-cache-dir -r requirements.txt
 EXPOSE 5000
 CMD [ "gunicorn", "--bind", "0.0.0.0:5000", "controller:app" ]
