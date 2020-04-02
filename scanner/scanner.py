@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 """
-scan_bot.py
+scanner.py
 gerhard van andel
 """
 import redis
