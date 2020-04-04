@@ -4,17 +4,53 @@
 controller.py
 gerhard van andel
 """
-
-from flask import Flask, request, Response
-from urllib.parse import urlparse
+import sys
 import json
+import time
 import uuid
-import redis
-import pika
+import socket
+import logging
+from urllib.parse import urlparse
+from datetime import datetime
 
+import pika
+import redis
+from flask import Flask, request, Response
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+# create console handler with a higher log level
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+# create formatter and add it to the handlers
+formatter = logging.Formatter('%(asctime)s.%(msecs).03dZ %(levelname)s %(process)d [%(name)s:%(threadName)s] %(module)s/%(funcName)s:%(lineno)d: %(message)s')
+ch.setFormatter(formatter)
+# add the handlers to the logger
+logger.addHandler(ch)
+
+ping_counter = 1
+is_reachable = False
+while is_reachable is False and ping_counter < 10:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.connect(('rabbitmq', 5672))
+        is_reachable = True
+    except socket.error as e:
+        logger.error(f' [*] failed to connect, retry in {ping_counter ** 2} seconds')
+        time.sleep(ping_counter ** 2)
+        ping_counter += 1
+    sock.close()
+
+if not is_reachable:
+    logger.error(' [*] failed to connect, exiting')
+    sys.exit(1)
+
+ip_addr = socket.gethostbyname(socket.gethostname())
+logger.info(' [*] ip address is: {}'.format(ip_addr))
 
 # Initialize the Flask application
 app = Flask(__name__)
+app.logger = logger
 
 
 # route http posts to this method
@@ -33,7 +69,7 @@ def url():
         response = add_task(task)
         app.logger.info('* task added: {}'.format(task))
     except Exception as error:
-        app.logger.error(str(error))
+        app.logger.exception(error)
         response = {'type': 'error', 'error': str(error), 'url': request_url}
         status = 400
     json_response = json.dumps(response)
@@ -46,11 +82,9 @@ def make_task(input_url):
     url_data = urlparse(input_url)
     if url_data.netloc == '':
         raise ValueError('invalid url {}'.format(input_url))
-    request_id = str(uuid.uuid4())
-    app.logger.info('* task uuid generated: {}'.format(uuid))
     return {
-        'type': 'get',
-        'request_id': request_id,
+        'type': 'spider',
+        'timestamp': datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
         'domain': url_data.netloc,
         'scheme': url_data.scheme,
         'path': url_data.path,
@@ -68,11 +102,12 @@ def add_task(task):
     connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
     channel = connection.channel()
     channel.queue_declare(queue='task_queue', durable=True)
+    identifier = str(uuid.uuid4())
+    app.logger.info('* task uuid generated: {}'.format(identifier))
     ret = {
         'status': 'queued',
-        'data': [task],
-        'uuid': task['request_id'],
-        'url': task['url']
+        'uuid': identifier,
+        'data': [task]
     }
     app.logger.info('* task generated: {}'.format(ret))
     message = json.dumps(ret)
@@ -84,7 +119,7 @@ def add_task(task):
     connection.close()
     # Initialize the Redis connection
     uuid_redis = redis.StrictRedis(host='redis', port=6379, db=1)
-    uuid_redis.set(task['request_id'], message)
+    uuid_redis.set(identifier, message)
     return ret
 
 

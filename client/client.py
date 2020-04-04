@@ -6,11 +6,12 @@ gerhard van andel
 """
 
 import sys
+import json
 import logging
 import argparse
 import requests
 
-TARGET = 'localhost:5000'
+URL = 'localhost:5000'
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -26,7 +27,7 @@ logger.addHandler(ch)
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--url', default=TARGET, type=str, nargs='?', help='controller url')
+    parser.add_argument('--url', default=URL, type=str, nargs='?', help='controller url')
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--target', type=str, help='target url')
     group.add_argument('--uuid', type=str, help='uuid')
@@ -41,7 +42,8 @@ def main():
         logger.error(err)
         sys.exit(1)
 
-    logger.info(f'{response.request.method} response code is {response.status_code} data {response.json()} seconds {response.elapsed.total_seconds()}')
+    logger.info(f'{response.request.method} response code is {response.status_code} seconds {response.elapsed.total_seconds()}')
+    print(f'{json.dumps(response.json(), indent=2, sort_keys=True)}')
 
 
 if __name__ == '__main__':

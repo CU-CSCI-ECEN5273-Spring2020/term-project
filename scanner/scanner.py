@@ -4,18 +4,18 @@
 scanner.py
 gerhard van andel
 """
-import redis
-import pika
-import json
 import base64
-import socket
+import json
 import logging
+import socket
+import sys
+import time
 from datetime import datetime
 
+import pika
+import redis
 from bs4 import BeautifulSoup
-
 from google.cloud import storage
-
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -28,6 +28,23 @@ ch.setFormatter(formatter)
 # add the handlers to the logger
 logger.addHandler(ch)
 
+
+ping_counter = 1
+is_reachable = False
+while is_reachable is False and ping_counter < 10:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.connect(('rabbitmq', 5672))
+        is_reachable = True
+    except socket.error as e:
+        logger.error(f' [*] failed to connect, retry in {ping_counter ** 2} seconds')
+        time.sleep(ping_counter ** 2)
+        ping_counter += 1
+    sock.close()
+
+if not is_reachable:
+    logger.info(' [*] failed to connect, exiting')
+    sys.exit(1)
 
 # Initialize the rabbitmq connection
 credentials = pika.PlainCredentials('guest', 'guest')
@@ -94,15 +111,18 @@ def parse_web_page(uuid, task):
 def callback(ch, method, properties, body):
     logger.info(' [x] message received')
     message = json.loads(body)
-    logger.info(' [x] message: {}'.format(message))
-    task = [x for x in message['data'] if x['type'] == 'scan'][0]
-    logger.info(' [x] {} url {} received'.format(message['uuid'], message['url']))
-    results = {}
+    uuid = message['uuid']
+    logger.info(' [x] {} message: {}'.format(uuid, message))
+    results = {'type': 'error', 'timestamp': datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")}
     try:
-        results['data'] = parse_web_page(message['uuid'], task)
-        status = 'complete'
+        task = [x for x in message['data'] if x['type'] == 'scan'][0]
+        logger.info(' [x] {} url depth {} received'.format(uuid, task['depth']))
+        parsed_data = parse_web_page(uuid, task)
+        results.update({'type': 'scan', 'data': parsed_data})
+        status = 'scan-complete'
     except Exception as err:
-        logger.error(' [x] {} failed {}'.format(message['uuid'], str(err)))
+        logger.exception(err)
+        logger.error(' [x] {} failed'.format(uuid))
         results = {'type': 'error', 'error': str(err)}
         status = 'failed'
     results['timestamp'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
