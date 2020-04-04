@@ -6,43 +6,20 @@ gerhard van andel
 """
 import sys
 import json
-import time
 import uuid
 import socket
-import logging
 from urllib.parse import urlparse
 from datetime import datetime
 
 import pika
 import redis
+from common import setup_logger, wait_for_connection
 from flask import Flask, request, Response
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-# create console handler with a higher log level
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-# create formatter and add it to the handlers
-formatter = logging.Formatter('%(asctime)s.%(msecs).03dZ %(levelname)s %(process)d [%(name)s:%(threadName)s] %(module)s/%(funcName)s:%(lineno)d: %(message)s')
-ch.setFormatter(formatter)
-# add the handlers to the logger
-logger.addHandler(ch)
+logger = setup_logger(__name__)
 
-ping_counter = 1
-is_reachable = False
-while is_reachable is False and ping_counter < 10:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.connect(('rabbitmq', 5672))
-        is_reachable = True
-    except socket.error as e:
-        logger.error(f' [*] failed to connect, retry in {ping_counter ** 2} seconds')
-        time.sleep(ping_counter ** 2)
-        ping_counter += 1
-    sock.close()
-
-if not is_reachable:
-    logger.error(' [*] failed to connect, exiting')
+if not wait_for_connection(logger):
+    print(' [*] failed to connect, exiting', file=sys.stderr)
     sys.exit(1)
 
 ip_addr = socket.gethostbyname(socket.gethostname())
@@ -149,6 +126,7 @@ if __name__ == '__main__':
         app.run(host="0.0.0.0", port=5000)
     except KeyboardInterrupt:
         pass
-    except Exception as err:
+    except Exception as error:
+        print(error, file=sys.stderr)
         import traceback
         traceback.print_exc()

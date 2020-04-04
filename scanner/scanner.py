@@ -6,55 +6,21 @@ gerhard van andel
 """
 import base64
 import json
-import logging
 import socket
 import sys
-import time
 from datetime import datetime
 
 import pika
 import redis
+from common import setup_logger, wait_for_connection
 from bs4 import BeautifulSoup
 from google.cloud import storage
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-# create console handler with a higher log level
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-# create formatter and add it to the handlers
-formatter = logging.Formatter('%(asctime)s.%(msecs).03dZ %(levelname)s %(process)d [%(name)s:%(threadName)s] %(module)s/%(funcName)s:%(lineno)d: %(message)s')
-ch.setFormatter(formatter)
-# add the handlers to the logger
-logger.addHandler(ch)
+logger = setup_logger(__name__)
 
-
-ping_counter = 1
-is_reachable = False
-while is_reachable is False and ping_counter < 10:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.connect(('rabbitmq', 5672))
-        is_reachable = True
-    except socket.error as e:
-        logger.error(f' [*] failed to connect, retry in {ping_counter ** 2} seconds')
-        time.sleep(ping_counter ** 2)
-        ping_counter += 1
-    sock.close()
-
-if not is_reachable:
-    logger.info(' [*] failed to connect, exiting')
+if not wait_for_connection(logger):
+    print(' [*] failed to connect, exiting', file=sys.stderr)
     sys.exit(1)
-
-# Initialize the rabbitmq connection
-credentials = pika.PlainCredentials('guest', 'guest')
-connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
-channel = connection.channel()
-
-channel.queue_declare(queue='scan_queue', durable=True)
-
-ip_addr = socket.gethostbyname(socket.gethostname())
-logger.info(' [*] ip address is: {}'.format(ip_addr))
 
 
 def string_to_base64(s):
@@ -136,12 +102,31 @@ def callback(ch, method, properties, body):
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
 
-logger.info(' [*] waiting for messages. To exit press CTRL+C')
-channel.basic_qos(prefetch_count=1)
-channel.basic_consume(on_message_callback=callback, queue='scan_queue', consumer_tag=ip_addr)
+def main():
+    credentials = pika.PlainCredentials('guest', 'guest')
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
+    channel = connection.channel()
 
-try:
-    channel.start_consuming()
-except KeyboardInterrupt:
-    channel.stop_consuming()
-connection.close()
+    channel.queue_declare(queue='scan_queue', durable=True)
+
+    ip_addr = socket.gethostbyname(socket.gethostname())
+    logger.info(' [*] ip address is: {}'.format(ip_addr))
+
+    logger.info(' [*] waiting for messages. To exit press CTRL+C')
+    channel.basic_qos(prefetch_count=1)
+    channel.basic_consume(on_message_callback=callback, queue='scan_queue', consumer_tag=ip_addr)
+
+    try:
+        channel.start_consuming()
+    except KeyboardInterrupt:
+        channel.stop_consuming()
+    connection.close()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(error, file=sys.stderr)
+        import traceback
+        traceback.print_exc()

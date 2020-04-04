@@ -7,7 +7,6 @@ gerhard van andel
 import sys
 import base64
 import json
-import logging
 import socket
 import time
 from datetime import datetime
@@ -17,50 +16,14 @@ from urllib.robotparser import RobotFileParser
 import pika
 import redis
 import requests
+from common import setup_logger, wait_for_connection
 from google.cloud import storage
 
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.INFO)
-# create console handler with a higher log level
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-# create formatter and add it to the handlers
-formatter = logging.Formatter('%(asctime)s.%(msecs).03dZ %(levelname)s %(process)d [%(name)s:%(threadName)s] %(module)s/%(funcName)s:%(lineno)d: %(message)s')
-ch.setFormatter(formatter)
-# add the handlers to the logger
-logger.addHandler(ch)
+logger = setup_logger(__name__)
 
-ping_counter = 1
-is_reachable = False
-while is_reachable is False and ping_counter < 10:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.connect(('rabbitmq', 5672))
-        is_reachable = True
-    except socket.error as e:
-        logger.error(f' [*] failed to connect, retry in {ping_counter ** 2} seconds')
-        time.sleep(ping_counter ** 2)
-        ping_counter += 1
-    sock.close()
-
-if not is_reachable:
-    print(' [*] failed to connect, exiting')
+if not wait_for_connection(logger):
+    print(' [*] failed to connect, exiting', file=sys.stderr)
     sys.exit(1)
-
-# Initialize the Redis connection
-uuid_redis = redis.StrictRedis(host='redis', port=6379, db=1)
-domain_redis = redis.StrictRedis(host='redis', port=6379, db=2)
-
-# Initialize the rabbitmq connection
-credentials = pika.PlainCredentials('guest', 'guest')
-connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
-channel = connection.channel()
-
-channel.queue_declare(queue='task_queue', durable=True)
-channel.queue_declare(queue='scan_queue', durable=True)
-
-ip_addr = socket.gethostbyname(socket.gethostname())
-logger.info(' [*] ip address is: {}'.format(ip_addr))
 
 USER_AGENT = 'asynchronousgillz, 1.1; requests, {}'.format(requests.__version__)
 USER_DELAY = 10
@@ -78,11 +41,22 @@ def base64_to_string(b):
     return base64.b64decode(b).decode('utf-8')
 
 
+def get_pika_properties():
+    return pika.BasicProperties(delivery_mode=2)
+
+
+def get_domain_redis():
+    return redis.StrictRedis(host='redis', port=6379, db=2)
+
+
+def get_uuid_redis():
+    return redis.StrictRedis(host='redis', port=6379, db=1)
+
+
 def upload_blob(bucket_name, source_data, destination_blob_name):
     """
     Uploads a file to the bucket
     """
-    return  # DEBUG
     storage_client = storage.Client()
     bucket = storage_client.get_bucket(bucket_name)
     blob = bucket.blob(destination_blob_name)
@@ -95,7 +69,7 @@ def check_robots(uuid, task):
     """
     Pulls the robots.txt if present
     """
-    domain_data = domain_redis.get(task['domain'])
+    domain_data = get_domain_redis().get(task['domain'])
     if domain_data is not None:
         domain_data = json.loads(domain_data)
     else:
@@ -114,7 +88,7 @@ def check_robots(uuid, task):
         }
         logger.info(' [x] {} saved domain data {}'.format(uuid, task['domain']))
         logger.debug(' [x] {} domain data {}'.format(uuid, domain_data))
-        domain_redis.set(task['domain'], json.dumps(domain_data))
+        get_domain_redis().set(task['domain'], json.dumps(domain_data))
         logger.info(' [x] {} {} validation results {}'.format(uuid, url, valid_url))
         if not valid_url:
             raise ValueError('robot.txt rule validation failed')
@@ -128,9 +102,9 @@ def pull_data(uuid, task, domain_data):
     domain = domain_data['domain']
     domain_lock_try_count = 1
     for domain_lock_try_count in range(1, MAX_PULL_COUNT):
-        domain_data = json.loads(domain_redis.get(domain))
+        domain_data = json.loads(get_domain_redis().get(domain))
         if domain_data['lock']:
-            sleep_time = (domain_lock_try_count + randint(1, 5)) ** 2
+            sleep_time = (domain_lock_try_count ** 2) + randint(1, 5)
             logger.info(' [x] {} lock unavailable for domain {} retry in {} seconds'.format(uuid, domain_data['domain'], sleep_time))
             time.sleep(sleep_time)
             domain_lock_try_count += 1
@@ -139,7 +113,7 @@ def pull_data(uuid, task, domain_data):
     if domain_lock_try_count >= MAX_PULL_COUNT - 1:
         raise ConnectionError(' [x] {} failed to obtain lock for domain {}'.format(uuid, domain_data['domain']))
     domain_data['lock'] = True
-    domain_redis.set(domain, json.dumps(domain_data))
+    get_domain_redis().set(domain, json.dumps(domain_data))
     logger.info(' [x] {} lock acquired for domain {}'.format(uuid, domain_data['domain']))
     response = None
     try:
@@ -154,7 +128,7 @@ def pull_data(uuid, task, domain_data):
         logger.info(' [x] {} lock sleep {} seconds for domain {}'.format(uuid, domain_data['crawl_delay'], domain_data['domain']))
         time.sleep(domain_data['crawl_delay'])
         domain_data['lock'] = False
-        domain_redis.set(domain, json.dumps(domain_data))
+        get_domain_redis().set(domain, json.dumps(domain_data))
         logger.info(' [x] {} lock released for domain {}'.format(uuid, domain_data['domain']))
     return response
 
@@ -163,12 +137,13 @@ def make_scan_task(uuid, message):
     """
     Add a task to scan the data
     """
+    logger.info(' [x] {} establishing connection to rabbitmq'.format(uuid))
+    credentials = pika.PlainCredentials('guest', 'guest')
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
+    channel = connection.channel()
     logger.info(' [x] {} message to scan queue'.format(uuid))
-    channel.basic_publish(
-        exchange='',
-        routing_key='scan_queue',
-        body=message,
-        properties=pika.BasicProperties(delivery_mode=2))
+    channel.basic_publish(exchange='', routing_key='scan_queue', body=message, properties=get_pika_properties())
+    connection.close()
     logger.info(' [x] {} added message to scan queue complete'.format(uuid))
 
 
@@ -177,7 +152,7 @@ def update_redis(uuid, message):
     Update redis
     """
     logger.info(' [x] {} message to scan queue'.format(uuid))
-    uuid_redis.set(uuid, message)
+    get_uuid_redis().set(uuid, message)
     logger.info(' [x] {} update uuid database complete'.format(uuid))
 
 
@@ -230,12 +205,28 @@ def callback(ch, method, properties, body):
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
 
-logger.info(' [*] consuming messages on task_queue, to exit press CTRL+C')
-channel.basic_qos(prefetch_count=1)
-channel.basic_consume(on_message_callback=callback, queue='task_queue', consumer_tag=ip_addr)
+def main():
+    ip_addr = socket.gethostbyname(socket.gethostname())
+    logger.info(' [*] ip address is: {}'.format(ip_addr))
+    credentials = pika.PlainCredentials('guest', 'guest')
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
+    channel = connection.channel()
+    channel.queue_declare(queue='scan_queue', durable=True)
 
-try:
-    channel.start_consuming()
-except KeyboardInterrupt:
-    channel.stop_consuming()
-connection.close()
+    logger.info(' [*] waiting for messages. To exit press CTRL+C')
+    channel.basic_qos(prefetch_count=1)
+    channel.basic_consume(on_message_callback=callback, queue='spider_queue', consumer_tag=ip_addr)
+    try:
+        channel.start_consuming()
+    except KeyboardInterrupt:
+        channel.stop_consuming()
+    connection.close()
+
+
+if __name__ == '__main__':
+    try:
+        main()
+    except Exception as error:
+        print(error, file=sys.stderr)
+        import traceback
+        traceback.print_exc()
