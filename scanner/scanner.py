@@ -58,7 +58,7 @@ def parse_web_page(uuid, task):
     for link in soup.find_all('a'):
         text = link.getText()
         url = urlparse(link['href'])
-        if '' in (url.netloc, url.scheme, text) and len(url.geturl()) < 128:
+        if '' not in (url.netloc, url.scheme, text) and len(url.geturl()) < 128:
             page['links'].append({
                 'text': text,
                 'domain': url.netloc,
