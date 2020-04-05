@@ -221,7 +221,7 @@ def main():
     credentials = pika.PlainCredentials('guest', 'guest')
     connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
     channel = connection.channel()
-    channel.queue_declare(queue='scan_queue', durable=True)
+    channel.queue_declare(queue='spider_queue', durable=True)
 
     logger.info(' [*] waiting for messages. To exit press CTRL+C')
     channel.basic_qos(prefetch_count=1)
