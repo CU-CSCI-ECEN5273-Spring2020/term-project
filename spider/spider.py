@@ -120,7 +120,11 @@ def pull_data(uuid, task, domain_data):
         response = requests.get(task['url'], headers={'user-agent': USER_AGENT})
         response.raise_for_status()
     except requests.exceptions.HTTPError() as err:
-        logger.error(' [x] {} {} {}'.format(uuid, task['url'], err))
+        logger.exception(' [x] {} {} {}'.format(uuid, task['url'], err))
+        raise err
+    else:
+        get_domain_redis().set(h, uuid)
+        logger.info(' [x] {} hash {} set'.format(uuid, h))
     finally:
         logger.info(' [x] {} {} {} {} {}'.format(uuid, task['url'], response.request.method, response.status_code, response.elapsed.total_seconds()))
         logger.debug(' [x] {} {} {}'.format(uuid, task['url'], response.text))
