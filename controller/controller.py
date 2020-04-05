@@ -45,9 +45,10 @@ def url():
         app.logger.info('* task made for url: {}'.format(request_url))
         response = add_task(task)
         app.logger.info('* task added: {}'.format(task))
-    except Exception as error:
-        app.logger.exception(error)
-        response = {'type': 'error', 'error': str(error), 'url': request_url}
+    except Exception as err:
+        import traceback
+        app.logger.exception(err)
+        response = {'type': 'error', 'error': traceback.format_exc().splitlines()[-1], 'url': request_url}
         status = 400
     json_response = json.dumps(response)
     return Response(response=json_response, status=status, mimetype="application/json")
@@ -57,7 +58,7 @@ def make_task(input_url):
     """
     """
     url_data = urlparse(input_url)
-    if url_data.netloc == '':
+    if url_data.netloc == '' or url_data.scheme == '':
         raise ValueError('invalid url {}'.format(input_url))
     return {
         'type': 'spider',
@@ -112,8 +113,6 @@ def get_url(identifier):
     build a response dict to send back to client
     encode response using jsonpickle
     """
-    r = request
-    # Initialize the Redis connection
     uuid_redis = redis.StrictRedis(host='redis', port=6379, db=1)
     response = uuid_redis.get(identifier)
     if response is None:

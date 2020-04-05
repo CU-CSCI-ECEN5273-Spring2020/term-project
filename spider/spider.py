@@ -9,6 +9,7 @@ import base64
 import json
 import socket
 import time
+import hashlib
 from datetime import datetime
 from random import randint
 from urllib.robotparser import RobotFileParser
@@ -39,10 +40,6 @@ def string_to_base64(s):
 
 def base64_to_string(b):
     return base64.b64decode(b).decode('utf-8')
-
-
-def get_pika_properties():
-    return
 
 
 def get_domain_redis():
@@ -99,20 +96,21 @@ def pull_data(uuid, task, domain_data):
     """
     Pull the html data
     """
+    h = hashlib.sha256('{}:{}'.format(uuid, task['url']).encode('utf-8')).hexdigest()
+    if get_domain_redis().get(h):
+        raise StopIteration(' [x] {} has already seen url {} '.format(uuid, task['url']))
     domain = domain_data['domain']
     domain_lock_try_count = 1
     for domain_lock_try_count in range(1, MAX_PULL_COUNT):
         domain_data = json.loads(get_domain_redis().get(domain))
         if domain_data['lock']:
             sleep_time = (domain_lock_try_count ** 2) + randint(1, 5)
-            logger.info(' [x] {} lock unavailable for domain {} retry in {} seconds'.format(uuid, domain_data['domain'],
-                                                                                            sleep_time))
+            logger.info(' [x] {} lock unavailable for domain {} retry in {} seconds'.format(uuid, domain, sleep_time))
             time.sleep(sleep_time)
-            domain_lock_try_count += 1
         else:
             break
     if domain_lock_try_count >= MAX_PULL_COUNT - 1:
-        raise ConnectionError(' [x] {} failed to obtain lock for domain {}'.format(uuid, domain_data['domain']))
+        raise StopIteration(' [x] {} failed to obtain lock for domain {}'.format(uuid, domain_data['domain']))
     domain_data['lock'] = True
     get_domain_redis().set(domain, json.dumps(domain_data))
     logger.info(' [x] {} lock acquired for domain {}'.format(uuid, domain_data['domain']))
@@ -121,10 +119,10 @@ def pull_data(uuid, task, domain_data):
         logger.info(' [x] {} GET {}'.format(uuid, task['url']))
         response = requests.get(task['url'], headers={'user-agent': USER_AGENT})
         response.raise_for_status()
-    except requests.exceptions.HTTPError() as error:
-        logger.error(' [x] {} {} {}'.format(uuid, task['url'], error))
+    except requests.exceptions.HTTPError() as err:
+        logger.error(' [x] {} {} {}'.format(uuid, task['url'], err))
     finally:
-        logger.info(' [x] {} {} {} code {} seconds {}'.format(uuid, task['url'], response.request.method, response.status_code, response.elapsed.total_seconds()))
+        logger.info(' [x] {} {} {} {} {}'.format(uuid, task['url'], response.request.method, response.status_code, response.elapsed.total_seconds()))
         logger.debug(' [x] {} {} {}'.format(uuid, task['url'], response.text))
         logger.info(' [x] {} lock sleep {} seconds for domain {}'.format(uuid, domain_data['crawl_delay'], domain_data['domain']))
         time.sleep(domain_data['crawl_delay'])
@@ -197,10 +195,11 @@ def callback(ch, method, properties, body):
         status = 'limited'
         results.update({'type': 'limited', 'status': str(err)})
     except Exception as err:
+        import traceback
         logger.exception(err)
         logger.error(' [x] {} failed to read web page'.format(message['uuid']))
         status = 'failed'
-        results.update({'type': 'error', 'error': str(err)})
+        results.update({'type': 'error', 'error': traceback.format_exc().splitlines()[-1]})
     message['data'].append(results)
     message['status'] = status
     response_pickled = json.dumps(message)
@@ -239,5 +238,4 @@ if __name__ == '__main__':
     except Exception as error:
         print(error, file=sys.stderr)
         import traceback
-
         traceback.print_exc()

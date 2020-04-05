@@ -1,5 +1,6 @@
 # term-project docker compose
 version: "3"
+
 services:
   redis:
     image: redis
@@ -13,10 +14,10 @@ services:
 
   base:
     build: base
-    image: "local/term-project-base"
+    image: 'local/term-project-base'
 
   controller:
-    image: "term-project-controller"
+    image: 'term-project-controller'
     ports:
       - '5000'
     depends_on:
@@ -25,14 +26,18 @@ services:
       - redis
 
   scanner:
-    image: "term-project-scanner"
+    image: 'term-project-scanner'
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: '/usr/src/app/term-project.json'
     depends_on:
       - base
       - rabbitmq
       - redis
 
   spider:
-    image: "term-project-spider"
+    image: 'term-project-spider'
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: '/usr/src/app/term-project.json'
     depends_on:
       - base
       - rabbitmq

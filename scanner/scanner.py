@@ -8,6 +8,7 @@ import base64
 import json
 import socket
 import sys
+from urllib.parse import urlparse
 from datetime import datetime
 
 import pika
@@ -52,24 +53,28 @@ def parse_web_page(uuid, task):
     logger.info(' [x] {} content received'.format(uuid))
     soup = BeautifulSoup(content, 'html.parser')
     logger.info(' [x] {} BeautifulSoup soup received'.format(uuid))
-    page = {'title': soup.title.string, 'data': []}
+    page = {'title': soup.title.string, 'links': list(), 'text': list()}
     logger.info(' [x] {} url {} received'.format(uuid, soup.title.string))
-    link_data = []
     for link in soup.find_all('a'):
-        href = link['href'] 
         text = link.getText()
-        link_data.append({'href': href, 'text': text})
-    logger.info(' [x] {} BeautifulSoup soup link count: {}'.format(uuid, len(link_data)))
-    page['data'].append({'type': 'links', 'data': link_data})
-    text_data = []
+        url = urlparse(link['href'])
+        if '' in (url.netloc, url.scheme, text) and len(url.geturl()) < 128:
+            page['links'].append({
+                'text': text,
+                'domain': url.netloc,
+                'scheme': url.scheme,
+                'path': url.path,
+                'depth': task['depth'],
+                'url': url.geturl()
+            })
+    logger.info(' [x] {} BeautifulSoup soup link count: {}'.format(uuid, len(page['links'])))
     index_count = 0
     for paragraph in soup.find_all('p'):
-        text_data.append(paragraph.text)
+        page['text'].append(paragraph.text)
         index_count += 1
         if index_count > 10:
             break
-    logger.info(' [x] {} BeautifulSoup soup paragraphs count: {}'.format(uuid, len(text_data)))
-    page['data'].append({'type': 'text', 'data': text_data})
+    logger.info(' [x] {} BeautifulSoup soup paragraphs count: {}'.format(uuid, len(page['text'])))
     logger.info(' [x] {} BeautifulSoup complete'.format(uuid))
     return page
 
@@ -87,9 +92,10 @@ def callback(ch, method, properties, body):
         results.update({'type': 'scan', 'data': parsed_data})
         status = 'scan-complete'
     except Exception as err:
+        import traceback
         logger.exception(err)
         logger.error(' [x] {} failed'.format(uuid))
-        results = {'type': 'error', 'error': str(err)}
+        results = {'type': 'error', 'error': traceback.format_exc().splitlines()[-1]}
         status = 'failed'
     results['timestamp'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     message['data'].append(results)
