@@ -9,7 +9,7 @@ import socket
 import time
 
 
-def setup_logger(name: str):
+def setup_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.DEBUG)
     # create console handler with a higher log level
@@ -20,6 +20,7 @@ def setup_logger(name: str):
     ch.setFormatter(formatter)
     # add the handlers to the logger
     logger.addHandler(ch)
+    return logger
 
 
 def wait_for_connection(logger: logging.Logger):

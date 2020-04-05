@@ -19,7 +19,7 @@ from google.cloud import storage
 logger = setup_logger(__name__)
 
 if not wait_for_connection(logger):
-    print(' [*] failed to connect, exiting', file=sys.stderr)
+    logger.error(' [*] failed to connect, exiting')
     sys.exit(1)
 
 

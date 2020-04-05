@@ -19,7 +19,7 @@ from flask import Flask, request, Response
 logger = setup_logger(__name__)
 
 if not wait_for_connection(logger):
-    print(' [*] failed to connect, exiting', file=sys.stderr)
+    logger.error(' [*] failed to connect, exiting')
     sys.exit(1)
 
 ip_addr = socket.gethostbyname(socket.gethostname())
@@ -90,9 +90,14 @@ def add_task(task):
     message = json.dumps(ret)
     channel.basic_publish(
         exchange='',
-        routing_key='task_queue',
+        routing_key='spider_queue',
+        properties=pika.BasicProperties(
+            content_type='application/json',
+            content_encoding='UTF-8',
+            delivery_mode=2
+        ),
         body=message,
-        properties=pika.BasicProperties(content_type='text/plain', delivery_mode=2))
+    )
     connection.close()
     # Initialize the Redis connection
     uuid_redis = redis.StrictRedis(host='redis', port=6379, db=1)

@@ -22,7 +22,7 @@ from google.cloud import storage
 logger = setup_logger(__name__)
 
 if not wait_for_connection(logger):
-    print(' [*] failed to connect, exiting', file=sys.stderr)
+    logger.error(' [*] failed to connect, exiting')
     sys.exit(1)
 
 USER_AGENT = 'asynchronousgillz, 1.1; requests, {}'.format(requests.__version__)
@@ -42,7 +42,7 @@ def base64_to_string(b):
 
 
 def get_pika_properties():
-    return pika.BasicProperties(delivery_mode=2)
+    return
 
 
 def get_domain_redis():
@@ -105,7 +105,8 @@ def pull_data(uuid, task, domain_data):
         domain_data = json.loads(get_domain_redis().get(domain))
         if domain_data['lock']:
             sleep_time = (domain_lock_try_count ** 2) + randint(1, 5)
-            logger.info(' [x] {} lock unavailable for domain {} retry in {} seconds'.format(uuid, domain_data['domain'], sleep_time))
+            logger.info(' [x] {} lock unavailable for domain {} retry in {} seconds'.format(uuid, domain_data['domain'],
+                                                                                            sleep_time))
             time.sleep(sleep_time)
             domain_lock_try_count += 1
         else:
@@ -142,7 +143,16 @@ def make_scan_task(uuid, message):
     connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
     channel = connection.channel()
     logger.info(' [x] {} message to scan queue'.format(uuid))
-    channel.basic_publish(exchange='', routing_key='scan_queue', body=message, properties=get_pika_properties())
+    channel.basic_publish(
+        exchange='',
+        routing_key='scan_queue',
+        properties=pika.BasicProperties(
+            content_type='application/json',
+            content_encoding='UTF-8',
+            delivery_mode=2
+        ),
+        body=message,
+    )
     connection.close()
     logger.info(' [x] {} added message to scan queue complete'.format(uuid))
 
@@ -229,4 +239,5 @@ if __name__ == '__main__':
     except Exception as error:
         print(error, file=sys.stderr)
         import traceback
+
         traceback.print_exc()

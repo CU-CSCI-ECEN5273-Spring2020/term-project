@@ -7,22 +7,10 @@ gerhard van andel
 
 import sys
 import json
-import logging
 import argparse
 import requests
 
 URL = 'localhost:5000'
-
-logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-# create console handler with a higher log level
-ch = logging.StreamHandler()
-ch.setLevel(logging.DEBUG)
-# create formatter and add it to the handlers
-formatter = logging.Formatter('%(asctime)s.%(msecs).03dZ %(levelname)s %(process)d [%(name)s:%(threadName)s] %(module)s/%(funcName)s:%(lineno)d: %(message)s')
-ch.setFormatter(formatter)
-# add the handlers to the logger
-logger.addHandler(ch)
 
 
 def main():
@@ -39,10 +27,10 @@ def main():
         else:
             response = requests.get(f'http://{args.url}/api/url/{args.uuid}')
     except requests.exceptions.RequestException as err:
-        logger.error(err)
+        print(err, file=sys.stderr)
         sys.exit(1)
 
-    logger.info(f'{response.request.method} response code is {response.status_code} seconds {response.elapsed.total_seconds()}')
+    print(f'{response.request.method} response code is {response.status_code} seconds {response.elapsed.total_seconds()}')
     print(f'{json.dumps(response.json(), indent=2, sort_keys=True)}')
 
 
