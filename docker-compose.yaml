@@ -17,6 +17,7 @@ services:
     image: 'local/term-project-base'
 
   controller:
+    build: controller
     image: 'term-project-controller'
     ports:
       - '5000'
@@ -26,6 +27,7 @@ services:
       - redis
 
   scanner:
+    build: scanner
     image: 'term-project-scanner'
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: '/usr/src/app/term-project.json'
@@ -35,6 +37,7 @@ services:
       - redis
 
   spider:
+    build: spider
     image: 'term-project-spider'
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: '/usr/src/app/term-project.json'

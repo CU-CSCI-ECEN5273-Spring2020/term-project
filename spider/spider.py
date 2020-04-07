@@ -20,11 +20,13 @@ import requests
 from common import setup_logger, wait_for_connection
 from google.cloud import storage
 
+start_datetime = datetime.utcnow()
 logger = setup_logger(__name__)
 
 if not wait_for_connection(logger):
     logger.error(' [*] failed to connect, exiting')
     sys.exit(1)
+
 
 USER_AGENT = 'asynchronousgillz, 1.1; requests, {}'.format(requests.__version__)
 USER_DELAY = 10
@@ -221,6 +223,8 @@ def callback(ch, method, properties, body):
 def main():
     ip_addr = socket.gethostbyname(socket.gethostname())
     logger.info(' [*] ip address is: {}'.format(ip_addr))
+    logger.info(f' [*] startup time took, {(datetime.utcnow() - start_datetime).total_seconds()} seconds')
+
     credentials = pika.PlainCredentials('guest', 'guest')
     connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
     channel = connection.channel()

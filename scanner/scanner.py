@@ -17,6 +17,7 @@ from common import setup_logger, wait_for_connection
 from bs4 import BeautifulSoup
 from google.cloud import storage
 
+start_datetime = datetime.utcnow()
 logger = setup_logger(__name__)
 
 if not wait_for_connection(logger):
@@ -109,14 +110,15 @@ def callback(ch, method, properties, body):
 
 
 def main():
+    ip_addr = socket.gethostbyname(socket.gethostname())
+    logger.info(' [*] ip address is: {}'.format(ip_addr))
+    logger.info(f' [*] startup time took, {(datetime.utcnow() - start_datetime).total_seconds()} seconds')
+
     credentials = pika.PlainCredentials('guest', 'guest')
     connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
     channel = connection.channel()
 
     channel.queue_declare(queue='scan_queue', durable=True)
-
-    ip_addr = socket.gethostbyname(socket.gethostname())
-    logger.info(' [*] ip address is: {}'.format(ip_addr))
 
     logger.info(' [*] waiting for messages. To exit press CTRL+C')
     channel.basic_qos(prefetch_count=1)

@@ -16,6 +16,7 @@ import redis
 from common import setup_logger, wait_for_connection
 from flask import Flask, request, Response
 
+start_datetime = datetime.utcnow()
 logger = setup_logger(__name__)
 
 if not wait_for_connection(logger):
@@ -24,6 +25,7 @@ if not wait_for_connection(logger):
 
 ip_addr = socket.gethostbyname(socket.gethostname())
 logger.info(' [*] ip address is: {}'.format(ip_addr))
+logger.info(f' [*] startup time took, {(datetime.utcnow() - start_datetime).total_seconds()} seconds')
 
 # Initialize the Flask application
 app = Flask(__name__)
