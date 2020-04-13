@@ -9,21 +9,19 @@ import base64
 import json
 import socket
 import time
-import hashlib
 from datetime import datetime
 from random import randint
 from urllib.robotparser import RobotFileParser
 
 import pika
-import redis
 import requests
-from common import setup_logger, wait_for_connection
+import common
 from google.cloud import storage
 
 start_datetime = datetime.utcnow()
-logger = setup_logger(__name__)
+logger = common.setup_logger(__name__)
 
-if not wait_for_connection(logger):
+if not common.wait_for_connection(logger):
     logger.error(' [*] failed to connect, exiting')
     sys.exit(1)
 
@@ -44,14 +42,6 @@ def base64_to_string(b):
     return base64.b64decode(b).decode('utf-8')
 
 
-def get_domain_redis():
-    return redis.StrictRedis(host='redis', port=6379, db=2)
-
-
-def get_uuid_redis():
-    return redis.StrictRedis(host='redis', port=6379, db=1)
-
-
 def upload_blob(bucket_name, source_data, destination_blob_name):
     """
     Uploads a file to the bucket
@@ -64,16 +54,16 @@ def upload_blob(bucket_name, source_data, destination_blob_name):
     logger.info(' [x] file {} uploaded to {}'.format(destination_blob_name, bucket_name))
 
 
-def check_robots(uuid, task):
+def check_robots(identifier, task):
     """
     Pulls the robots.txt if present
     """
-    domain_data = get_domain_redis().get(task['domain'])
+    domain_data = common.get_domain_redis().get(task['domain'])
     if domain_data is not None:
         domain_data = json.loads(domain_data)
     else:
         url = '{}://{}/robots.txt'.format(task['scheme'], task['domain'])
-        logger.info(' [x] {} RobotFileParser {} '.format(uuid, url))
+        logger.info(' [x] {} RobotFileParser {} '.format(identifier, url))
         rp = RobotFileParser(url=url)
         rp.read()
         valid_url = rp.can_fetch('*', task['domain'])
@@ -85,68 +75,67 @@ def check_robots(uuid, task):
             'crawl_delay': USER_DELAY if delay is None else delay,
             'depth': USER_DEPTH
         }
-        logger.info(' [x] {} saved domain data {}'.format(uuid, task['domain']))
-        logger.debug(' [x] {} domain data {}'.format(uuid, domain_data))
-        get_domain_redis().set(task['domain'], json.dumps(domain_data))
-        logger.info(' [x] {} {} validation results {}'.format(uuid, url, valid_url))
+        logger.info(' [x] {} saved domain data {}'.format(identifier, task['domain']))
+        logger.debug(' [x] {} domain data {}'.format(identifier, domain_data))
+        common.get_domain_redis().set(task['domain'], json.dumps(domain_data))
+        logger.info(' [x] {} {} validation results {}'.format(identifier, url, valid_url))
         if not valid_url:
             raise ValueError('robot.txt rule validation failed')
     return domain_data
 
 
-def pull_data(uuid, task, domain_data):
+def pull_data(identifier, correlation, task, domain_data):
     """
     Pull the html data
     """
-    h = hashlib.sha256('{}:{}'.format(uuid, task['url']).encode('utf-8')).hexdigest()
-    if get_domain_redis().get(h):
-        raise StopIteration(' [x] {} has already seen url {} '.format(uuid, task['url']))
     domain = domain_data['domain']
     domain_lock_try_count = 1
     for domain_lock_try_count in range(1, MAX_PULL_COUNT):
-        domain_data = json.loads(get_domain_redis().get(domain))
+        domain_data = json.loads(common.get_domain_redis().get(domain))
         if domain_data['lock']:
             sleep_time = (domain_lock_try_count ** 2) + randint(1, 5)
-            logger.info(' [x] {} lock unavailable for domain {} retry in {} seconds'.format(uuid, domain, sleep_time))
+            logger.info(' [x] {} lock unavailable for domain {} retry in {} seconds'.format(identifier, domain, sleep_time))
             time.sleep(sleep_time)
         else:
             break
     if domain_lock_try_count >= MAX_PULL_COUNT - 1:
-        raise StopIteration(' [x] {} failed to obtain lock for domain {}'.format(uuid, domain_data['domain']))
+        raise StopIteration(' [x] {} failed to obtain lock for domain {}'.format(identifier, domain_data['domain']))
     domain_data['lock'] = True
-    get_domain_redis().set(domain, json.dumps(domain_data))
-    logger.info(' [x] {} lock acquired for domain {}'.format(uuid, domain_data['domain']))
+    common.get_domain_redis().set(domain, json.dumps(domain_data))
+    logger.info(' [x] {} lock acquired for domain {}'.format(identifier, domain_data['domain']))
     response = None
     try:
-        logger.info(' [x] {} GET {}'.format(uuid, task['url']))
+        logger.info(' [x] {} GET {}'.format(identifier, task['url']))
         response = requests.get(task['url'], headers={'user-agent': USER_AGENT})
         response.raise_for_status()
-    except requests.exceptions.HTTPError() as err:
-        logger.exception(' [x] {} {} {}'.format(uuid, task['url'], err))
+    except requests.exceptions.RequestException as err:
+        logger.exception(' [x] {} {} {}'.format(identifier, task['url'], err))
         raise err
     else:
-        get_domain_redis().set(h, uuid)
-        logger.info(' [x] {} hash {} set'.format(uuid, h))
+        h = common.domain_hash(correlation, task['url'])
+        common.get_domain_redis().set(h, identifier)
+        logger.info(' [x] {} hash {} {} set'.format(identifier, task['url'], h))
     finally:
-        logger.info(' [x] {} {} {} {} {}'.format(uuid, task['url'], response.request.method, response.status_code, response.elapsed.total_seconds()))
-        logger.debug(' [x] {} {} {}'.format(uuid, task['url'], response.text))
-        logger.info(' [x] {} lock sleep {} seconds for domain {}'.format(uuid, domain_data['crawl_delay'], domain_data['domain']))
+        logger.info(' [x] {} {} {} {} {}'.format(identifier, task['url'], response.request.method, response.status_code, response.elapsed.total_seconds()))
+        logger.debug(' [x] {} {} {}'.format(identifier, task['url'], response.text))
+        logger.info(' [x] {} lock sleep {} seconds for domain {}'.format(identifier, domain_data['crawl_delay'], domain_data['domain']))
         time.sleep(domain_data['crawl_delay'])
         domain_data['lock'] = False
-        get_domain_redis().set(domain, json.dumps(domain_data))
-        logger.info(' [x] {} lock released for domain {}'.format(uuid, domain_data['domain']))
+        common.get_domain_redis().set(domain, json.dumps(domain_data))
+        logger.debug(' [x] {} {} {}'.format(identifier, task['url'], response.text))
+        logger.info(' [x] {} lock released for domain {}'.format(identifier, domain_data['domain']))
     return response
 
 
-def make_scan_task(uuid, message):
+def make_scan_task(identifier, message):
     """
     Add a task to scan the data
     """
-    logger.info(' [x] {} establishing connection to rabbitmq'.format(uuid))
+    logger.info(' [x] {} establishing connection to rabbitmq'.format(identifier))
     credentials = pika.PlainCredentials('guest', 'guest')
     connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
     channel = connection.channel()
-    logger.info(' [x] {} message to scan queue'.format(uuid))
+    logger.info(' [x] {} message to scan queue'.format(identifier))
     channel.basic_publish(
         exchange='',
         routing_key='scan_queue',
@@ -158,52 +147,56 @@ def make_scan_task(uuid, message):
         body=message,
     )
     connection.close()
-    logger.info(' [x] {} added message to scan queue complete'.format(uuid))
+    logger.info(' [x] {} added message to scan queue complete'.format(identifier))
 
 
-def update_redis(uuid, message):
+def update_redis(identifier, message):
     """
     Update redis
     """
-    logger.info(' [x] {} message to scan queue'.format(uuid))
-    get_uuid_redis().set(uuid, message)
-    logger.info(' [x] {} update uuid database complete'.format(uuid))
+    logger.info(' [x] {} message to scan queue'.format(identifier))
+    common.get_job_redis().set(identifier, message)
+    logger.info(' [x] {} update identifier database complete'.format(identifier))
 
 
 def callback(ch, method, properties, body):
     logger.info(' [x] message received')
     message = json.loads(body)
-    uuid = message['uuid']
-    logger.info(' [x] {} message: {}'.format(uuid, message))
+    identifier = message['identifier']
+    correlation = message['correlation']
+    logger.info(' [x] {} message: {}'.format(identifier, message))
     results = {'type': 'error', 'timestamp': datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")}
     valid_scan_task = False
     try:
         task = [x for x in message['data'] if x['type'] == 'spider'][0]
-        logger.info(' [x] {} url {} received'.format(uuid, task['url']))
+        logger.info(' [x] {} url {} received'.format(identifier, task['url']))
         if task['depth'] > MAX_DEPTH:
             raise StopIteration('depth: {} > {}'.format(task['depth'], MAX_DEPTH))
-        domain_data = check_robots(uuid, task)
+        domain_data = check_robots(identifier, task)
         status = 'spider-crawled'
-        response = pull_data(uuid, task, domain_data)
-        blob_name = '{}.html'.format(uuid)
+        response = pull_data(identifier, correlation, task, domain_data)
+        blob_name = '{}.html'.format(identifier)
         upload_blob(USER_BUCKET, response.text, blob_name)
-        results.update({
-            'type': 'scan',
+        data_message = {
             'method': response.request.method,
             'code': response.status_code,
             'time': response.elapsed.total_seconds(),
             'local': 'gs://{}/{}'.format(USER_BUCKET, blob_name),
-            'depth': domain_data['depth'] + 1
-        })
+        }
+        query_data_key = 'domain.{}.{}'.format(domain_data['domain'], identifier)
+        common.get_domain_redis().set(query_data_key, json.dumps(domain_data))
+        data_message['depth'] = domain_data['depth'] + 1
+        data_message['type'] = 'scan'
+        results.update(data_message)
         valid_scan_task = True
     except StopIteration as err:
-        logger.info(' [x] {} depth limited {}'.format(message['uuid'], str(err)))
+        logger.info(' [x] {} depth limited {}'.format(message['identifier'], str(err)))
         status = 'limited'
         results.update({'type': 'limited', 'status': str(err)})
     except Exception as err:
         import traceback
         logger.exception(err)
-        logger.error(' [x] {} failed to read web page'.format(message['uuid']))
+        logger.error(' [x] {} failed to read web page'.format(message['identifier']))
         status = 'failed'
         results.update({'type': 'error', 'error': traceback.format_exc().splitlines()[-1]})
     message['data'].append(results)
@@ -211,12 +204,12 @@ def callback(ch, method, properties, body):
     response_pickled = json.dumps(message)
     try:
         if valid_scan_task:
-            make_scan_task(message['uuid'], response_pickled)
-        update_redis(message['uuid'], response_pickled)
+            make_scan_task(message['identifier'], response_pickled)
+        update_redis(message['identifier'], response_pickled)
     except Exception as err:
-        logger.error(' [x] {} failed to make scan task {}'.format(message['uuid'], str(err)))
+        logger.error(' [x] {} failed to make scan task {}'.format(message['identifier'], str(err)))
     else:
-        logger.info(' [x] {} web message complete'.format(message['uuid']))
+        logger.info(' [x] {} web message complete'.format(message['identifier']))
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
 

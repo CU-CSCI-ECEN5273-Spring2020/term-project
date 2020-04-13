@@ -8,12 +8,11 @@ import sys
 import json
 import uuid
 import socket
-from urllib.parse import urlparse
 from datetime import datetime
 
 import pika
 import redis
-from common import setup_logger, wait_for_connection
+from common import setup_logger, wait_for_connection, make_spider_task
 from flask import Flask, request, Response
 
 start_datetime = datetime.utcnow()
@@ -43,9 +42,9 @@ def url():
     request_url = None
     try:
         request_url = content['url']
-        task = make_task(request_url)
+        task = make_spider_task(request_url)
         app.logger.info('* task made for url: {}'.format(request_url))
-        response = add_task(task)
+        response = add_spider_task(task)
         app.logger.info('* task added: {}'.format(task))
     except Exception as err:
         import traceback
@@ -56,24 +55,7 @@ def url():
     return Response(response=json_response, status=status, mimetype="application/json")
 
 
-def make_task(input_url):
-    """
-    """
-    url_data = urlparse(input_url)
-    if url_data.netloc == '' or url_data.scheme == '':
-        raise ValueError('invalid url {}'.format(input_url))
-    return {
-        'type': 'spider',
-        'timestamp': datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
-        'domain': url_data.netloc,
-        'scheme': url_data.scheme,
-        'path': url_data.path,
-        'depth': 1,
-        'url': url_data.geturl()
-    }
-
-
-def add_task(task):
+def add_spider_task(task):
     """
     """
     # Initialize the rabbitmq connection
@@ -83,10 +65,11 @@ def add_task(task):
     channel = connection.channel()
     channel.queue_declare(queue='task_queue', durable=True)
     identifier = str(uuid.uuid4())
-    app.logger.info('* task uuid generated: {}'.format(identifier))
+    app.logger.info('* task identifier generated: {}'.format(identifier))
     ret = {
         'status': 'queued',
-        'uuid': identifier,
+        'identifier': identifier,
+        'correlation': identifier,
         'data': [task]
     }
     app.logger.info('* task generated: {}'.format(ret))
