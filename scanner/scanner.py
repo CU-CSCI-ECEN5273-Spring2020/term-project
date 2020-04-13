@@ -60,9 +60,7 @@ def parse_web_page(identifier, correlation, task):
             task['identifier'] = str(uuid.uuid4())
             logger.info(' [x] {} task made for url: {}'.format(identifier, link['href']))
             page['links'].append(task)
-        except (ValueError, KeyError):
-            logger.debug(' [x] {} skipping {}'.format(identifier, link))
-        except StopIteration:
+        except (ValueError, KeyError, StopIteration):
             logger.debug(' [x] {} skipping {}'.format(identifier, link))
         # To test depth not amount of links
         task_link_count += 1
