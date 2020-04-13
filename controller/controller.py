@@ -12,13 +12,13 @@ from datetime import datetime
 
 import pika
 import redis
-from common import setup_logger, wait_for_connection, make_spider_task
+import common
 from flask import Flask, request, Response
 
 start_datetime = datetime.utcnow()
-logger = setup_logger(__name__)
+logger = common.setup_logger(__name__)
 
-if not wait_for_connection(logger):
+if not common.wait_for_connection(logger):
     logger.error(' [*] failed to connect, exiting')
     sys.exit(1)
 
@@ -42,7 +42,7 @@ def url():
     request_url = None
     try:
         request_url = content['url']
-        task = make_spider_task(request_url)
+        task = common.make_spider_task(request_url)
         app.logger.info('* task made for url: {}'.format(request_url))
         response = add_spider_task(task)
         app.logger.info('* task added: {}'.format(task))
@@ -86,8 +86,7 @@ def add_spider_task(task):
     )
     connection.close()
     # Initialize the Redis connection
-    uuid_redis = redis.StrictRedis(host='redis', port=6379, db=1)
-    uuid_redis.set(identifier, message)
+    common.get_job_redis().set(identifier, message)
     return ret
 
 
@@ -98,13 +97,37 @@ def get_url(identifier):
     build a response dict to send back to client
     encode response using jsonpickle
     """
-    uuid_redis = redis.StrictRedis(host='redis', port=6379, db=1)
-    response = uuid_redis.get(identifier)
+    response = common.get_job_redis.get(identifier)
     if response is None:
         status = 404
     else:
         status = 200
         response = json.loads(response)
+    json_response = json.dumps(response)
+    return Response(response=json_response, status=status, mimetype="application/json")
+
+
+# route http get to this method
+@app.route('/api/stats', methods=['GET'], endpoint='get_stats')
+def get_stats():
+    """
+    build a response dict to send back to client
+    encode response using jsonpickle
+    """
+    status = 200
+    response = {'status': 'OK', 'data': list()}
+    try:
+        r = common.get_stats_redis()
+        for req in r.keys():
+            key = req.decode()
+            logger.debug(f'searching for key {key}')
+            point = json.loads(r.get(key))
+            response['data'].append(point)
+    except Exception as err:
+        import traceback
+        app.logger.exception(err)
+        response = {'type': 'error', 'error': traceback.format_exc().splitlines()[-1]}
+        status = 400
     json_response = json.dumps(response)
     return Response(response=json_response, status=status, mimetype="application/json")
 

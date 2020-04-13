@@ -66,6 +66,10 @@ def make_spider_task(input_url: str, depth: int = 1):
     }
 
 
+def get_stats_redis():
+    return redis.StrictRedis(host='redis', port=6379, db=3)
+
+
 def get_domain_redis():
     return redis.StrictRedis(host='redis', port=6379, db=2)
 

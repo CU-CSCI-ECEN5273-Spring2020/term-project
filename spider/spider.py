@@ -184,7 +184,7 @@ def callback(ch, method, properties, body):
             'local': 'gs://{}/{}'.format(USER_BUCKET, blob_name),
         }
         query_data_key = 'domain.{}.{}'.format(domain_data['domain'], identifier)
-        common.get_domain_redis().set(query_data_key, json.dumps(domain_data))
+        common.get_stats_redis().set(query_data_key, json.dumps(domain_data))
         data_message['depth'] = domain_data['depth'] + 1
         data_message['type'] = 'scan'
         results.update(data_message)
