@@ -129,7 +129,7 @@ def get_stats():
         response = {'type': 'error', 'error': traceback.format_exc().splitlines()[-1]}
         status = 400
     json_response = json.dumps(response)
-    return Response(response=json_response, status=status, mimetype="application/json")
+    return Response(response=json_response, status=status, mimetype='application/json')
 
 
 # start flask app

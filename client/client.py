@@ -19,13 +19,16 @@ def main():
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument('--target', type=str, help='target url')
     group.add_argument('--uuid', type=str, help='uuid')
+    group.add_argument('--stats', action='store_true', default=False, help='stats')
     args = parser.parse_args()
 
     try:
         if args.target:
             response = requests.post(f'http://{args.url}/api/url', json={'url': args.target})
-        else:
+        elif args.uuid:
             response = requests.get(f'http://{args.url}/api/url/{args.uuid}')
+        else:
+            response = requests.get(f'http://{args.url}/api/stats')
     except requests.exceptions.RequestException as err:
         print(err, file=sys.stderr)
         sys.exit(1)

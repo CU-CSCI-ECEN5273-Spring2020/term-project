@@ -182,11 +182,18 @@ def callback(ch, method, properties, body):
             'code': response.status_code,
             'time': response.elapsed.total_seconds(),
             'local': 'gs://{}/{}'.format(USER_BUCKET, blob_name),
+            'depth': domain_data['depth'] + 1,
+            'type': 'scan'
         }
         query_data_key = 'domain.{}.{}'.format(domain_data['domain'], identifier)
-        common.get_stats_redis().set(query_data_key, json.dumps(domain_data))
-        data_message['depth'] = domain_data['depth'] + 1
-        data_message['type'] = 'scan'
+        response_data = {
+            'method': response.request.method,
+            'code': response.status_code,
+            'time': response.elapsed.total_seconds(),
+            'timestamp': datetime.utcnow().isoformat(),
+            'url': task['url']
+        }
+        common.get_stats_redis().set(query_data_key, json.dumps(response_data))
         results.update(data_message)
         valid_scan_task = True
     except StopIteration as err:
