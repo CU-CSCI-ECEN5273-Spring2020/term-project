@@ -17,5 +17,5 @@ A specific list of software and hardware components
 + `web_bots` - takes a task off of RabbitMQ (web-site urls) to then search
 + `scan_bots` - takes a task off of RabbitMQ (web-data blocks) to scan for more links and then update
 
-[diagram]: /term-project/term-project.png "Diagram"
+[diagram]: /term-project.png "Diagram"
 

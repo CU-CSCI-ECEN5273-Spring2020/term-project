@@ -16,7 +16,6 @@ import common
 from bs4 import BeautifulSoup
 from google.cloud import storage
 
-TASK_LINK_LIMIT = 5
 
 start_datetime = datetime.utcnow()
 logger = common.setup_logger(__name__)
@@ -49,7 +48,6 @@ def parse_web_page(identifier, correlation, task):
     logger.info(' [x] {} BeautifulSoup soup received'.format(identifier))
     page = {'title': soup.title.string, 'links': list()}
     logger.info(' [x] {} url {} received'.format(identifier, soup.title.string))
-    task_link_count = 0
     for link in soup.find_all('a'):
         try:
             task = common.make_spider_task(link['href'], task['depth'])
@@ -62,10 +60,6 @@ def parse_web_page(identifier, correlation, task):
             page['links'].append(task)
         except (ValueError, KeyError, StopIteration):
             logger.debug(' [x] {} skipping {}'.format(identifier, link))
-        # To test depth not amount of links
-        task_link_count += 1
-        if task_link_count > TASK_LINK_LIMIT:
-            break
     logger.info(' [x] {} BeautifulSoup complete'.format(identifier))
     return page
 
@@ -73,6 +67,7 @@ def parse_web_page(identifier, correlation, task):
 def add_tasks(correlation, task_list):
     """
     """
+    ret = list()
     # Initialize the rabbitmq connection
     credentials = pika.PlainCredentials('guest', 'guest')
     connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
@@ -82,14 +77,14 @@ def add_tasks(correlation, task_list):
         logger.info(' [x] add task: {}'.format(task))
         identifier = task['identifier']
         logger.info(' [x] task identifier generated: {} correlation {}'.format(identifier, correlation))
-        ret = {
+        spider_task = {
             'status': 'queued',
             'identifier': identifier,
             'correlation': correlation,
             'data': [task]
         }
-        logger.info('* task generated: {}'.format(ret))
-        message = json.dumps(ret)
+        logger.info('* task generated: {}'.format(spider_task))
+        message = json.dumps(spider_task)
         channel.basic_publish(
             exchange='',
             routing_key='spider_queue',
@@ -101,11 +96,12 @@ def add_tasks(correlation, task_list):
             body=message,
         )
         # Initialize the Redis connection
-        uuid_redis = redis.StrictRedis(host='redis', port=6379, db=1)
-        uuid_redis.set(identifier, message)
+        common.get_job_redis().set(identifier, message)
+        ret.append(identifier)
     # Close the RabbitMQ connection
     connection.close()
     logger.info(' [x] {} complete'.format(correlation))
+    return ret
 
 
 def callback(ch, method, properties, body):
@@ -119,8 +115,9 @@ def callback(ch, method, properties, body):
         task = [x for x in message['data'] if x['type'] == 'scan'][0]
         logger.info(' [x] {} url depth {} received'.format(identifier, task['depth']))
         parsed_data = parse_web_page(identifier, correlation, task)
-        logger.info(' [x] {} web information parsed now making tasks'.format(identifier))
-        add_tasks(correlation, parsed_data['links'])
+        links = parsed_data.pop('links')
+        logger.info(f' [x] {identifier} web information parsed now making {len(links)} tasks')
+        parsed_data['links'] = add_tasks(correlation, links)
         results.update({'type': 'scan', 'data': parsed_data})
         status = 'scan-complete'
     except Exception as err:
@@ -134,8 +131,7 @@ def callback(ch, method, properties, body):
     message['status'] = status
     response_pickled = json.dumps(message)
     # Initialize the Redis connection
-    uuid_redis = redis.StrictRedis(host='redis', port=6379, db=1)
-    uuid_redis.set(message['identifier'], response_pickled)
+    common.get_job_redis().set(message['identifier'], response_pickled)
     logger.info(' [x] {} message complete'.format(message['identifier']))
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
