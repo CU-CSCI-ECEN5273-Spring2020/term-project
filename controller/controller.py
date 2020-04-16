@@ -97,7 +97,7 @@ def get_url(identifier):
     build a response dict to send back to client
     encode response using jsonpickle
     """
-    response = common.get_job_redis.get(identifier)
+    response = common.get_job_redis().get(identifier)
     if response is None:
         status = 404
     else:
