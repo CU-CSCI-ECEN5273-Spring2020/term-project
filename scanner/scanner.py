@@ -11,7 +11,6 @@ import uuid
 from datetime import datetime
 
 import pika
-import redis
 import common
 from bs4 import BeautifulSoup
 from google.cloud import storage
@@ -74,16 +73,16 @@ def add_tasks(correlation, task_list):
     channel = connection.channel()
     channel.queue_declare(queue='task_queue', durable=True)
     for task in task_list:
-        logger.info(' [x] add task: {}'.format(task))
+        logger.info(f' [x] add task: {task}')
         identifier = task['identifier']
-        logger.info(' [x] task identifier generated: {} correlation {}'.format(identifier, correlation))
+        logger.info(f' [x] task identifier generated: {identifier} correlation {correlation}')
         spider_task = {
             'status': 'queued',
             'identifier': identifier,
             'correlation': correlation,
             'data': [task]
         }
-        logger.info('* task generated: {}'.format(spider_task))
+        logger.info(f' [x] task generated: {spider_task}')
         message = json.dumps(spider_task)
         channel.basic_publish(
             exchange='',
@@ -100,7 +99,7 @@ def add_tasks(correlation, task_list):
         ret.append(identifier)
     # Close the RabbitMQ connection
     connection.close()
-    logger.info(' [x] {} complete'.format(correlation))
+    logger.info(f' [x] {correlation} complete')
     return ret
 
 
@@ -109,7 +108,7 @@ def callback(ch, method, properties, body):
     message = json.loads(body)
     identifier = message['identifier']
     correlation = message['correlation'] if message['correlation'] else identifier
-    logger.info(' [x] {} message: {}'.format(identifier, message))
+    logger.info(f' [x] {identifier} message: {message}')
     results = {'type': 'error', 'timestamp': datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")}
     try:
         task = [x for x in message['data'] if x['type'] == 'scan'][0]
@@ -123,7 +122,7 @@ def callback(ch, method, properties, body):
     except Exception as err:
         import traceback
         logger.exception(err)
-        logger.error(' [x] {} failed'.format(identifier))
+        logger.error(f' [x] {identifier} failed')
         results = {'type': 'error', 'error': traceback.format_exc().splitlines()[-1]}
         status = 'failed'
     results['timestamp'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")

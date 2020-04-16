@@ -5,7 +5,6 @@ spider.py
 gerhard van andel
 """
 import sys
-import base64
 import json
 import socket
 import time
@@ -32,14 +31,6 @@ USER_DEPTH = 1
 USER_BUCKET = 'term-project'
 MAX_DEPTH = 5
 MAX_PULL_COUNT = 20
-
-
-def string_to_base64(s):
-    return base64.b64encode(s.encode('utf-8'))
-
-
-def base64_to_string(b):
-    return base64.b64decode(b).decode('utf-8')
 
 
 def upload_blob(bucket_name, source_data, destination_blob_name):

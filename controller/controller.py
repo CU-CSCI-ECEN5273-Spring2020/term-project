@@ -11,7 +11,6 @@ import socket
 from datetime import datetime
 
 import pika
-import redis
 import common
 from flask import Flask, request, Response
 
@@ -115,7 +114,7 @@ def get_stats():
     encode response using jsonpickle
     """
     status = 200
-    response = {'status': 'OK', 'data': list()}
+    response = {'status': 'OK', 'data': list(), 'total': 0}
     try:
         r = common.get_stats_redis()
         for req in r.keys():
@@ -123,6 +122,7 @@ def get_stats():
             logger.debug(f'searching for key {key}')
             point = json.loads(r.get(key))
             response['data'].append(point)
+            response['total'] += 1
     except Exception as err:
         import traceback
         app.logger.exception(err)
