@@ -13,6 +13,9 @@ from datetime import datetime
 from urllib.parse import urlparse
 
 
+USER_BUCKET = 'term-project'
+
+
 def setup_logger(name: str) -> logging.Logger:
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)

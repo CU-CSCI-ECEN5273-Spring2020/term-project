@@ -38,8 +38,8 @@ def download_blob(bucket_name, blob_name):
 def parse_web_page(identifier, correlation, task):
     """ lets get the links in the web page"""
     logger.info(' [x] {} BeautifulSoup start'.format(identifier))
-    gs_local = task['local'].split('/')
-    bucket_name, blob = gs_local[-2:]
+    gs_local = task['local'].split('/', 3)
+    bucket_name, blob = gs_local[2:]
     logger.info(' [x] {} bucket_name: {} blob: {}'.format(identifier, bucket_name, blob))
     content = download_blob(bucket_name, blob)
     logger.info(' [x] {} content received'.format(identifier))
@@ -63,7 +63,7 @@ def parse_web_page(identifier, correlation, task):
     return page
 
 
-def add_tasks(correlation, task_list):
+def add_spider_tasks(correlation, task_list):
     """
     """
     ret = list()
@@ -103,6 +103,28 @@ def add_tasks(correlation, task_list):
     return ret
 
 
+def add_cleanup_task(identifier, message):
+    """
+    """
+    logger.info(' [x] {} establishing connection to rabbitmq'.format(identifier))
+    credentials = pika.PlainCredentials('guest', 'guest')
+    connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
+    channel = connection.channel()
+    logger.info(' [x] {} message to cleanup queue'.format(identifier))
+    channel.basic_publish(
+        exchange='',
+        routing_key='cleanup_queue',
+        properties=pika.BasicProperties(
+            content_type='application/json',
+            content_encoding='UTF-8',
+            delivery_mode=2
+        ),
+        body=message,
+    )
+    connection.close()
+    logger.info(' [x] {} added message to cleanup queue complete'.format(identifier))
+
+
 def callback(ch, method, properties, body):
     logger.info(' [x] message received')
     message = json.loads(body)
@@ -116,7 +138,7 @@ def callback(ch, method, properties, body):
         parsed_data = parse_web_page(identifier, correlation, task)
         links = parsed_data.pop('links')
         logger.info(f' [x] {identifier} web information parsed now making {len(links)} tasks')
-        parsed_data['links'] = add_tasks(correlation, links)
+        parsed_data['links'] = add_spider_tasks(correlation, links)
         results.update({'type': 'scan', 'data': parsed_data})
         status = 'scan-complete'
     except Exception as err:
@@ -128,10 +150,15 @@ def callback(ch, method, properties, body):
     results['timestamp'] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%fZ")
     message['data'].append(results)
     message['status'] = status
-    response_pickled = json.dumps(message)
     # Initialize the Redis connection
-    common.get_job_redis().set(message['identifier'], response_pickled)
-    logger.info(' [x] {} message complete'.format(message['identifier']))
+    response_pickled = json.dumps(message)
+    try:
+        add_cleanup_task(message['identifier'], response_pickled)
+        common.get_job_redis().set(message['identifier'], response_pickled)
+    except Exception as err:
+        logger.error(' [x] {} failed to make cleanup task {}'.format(message['identifier'], str(err)))
+    else:
+        logger.info(' [x] {} cleanup request complete'.format(message['identifier']))
     ch.basic_ack(delivery_tag=method.delivery_tag)
 
 

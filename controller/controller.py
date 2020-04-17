@@ -13,6 +13,8 @@ from datetime import datetime
 import pika
 import common
 from flask import Flask, request, Response
+from google.cloud import storage
+from google.cloud.exceptions import NotFound
 
 start_datetime = datetime.utcnow()
 logger = common.setup_logger(__name__)
@@ -28,6 +30,17 @@ logger.info(f' [*] startup time took, {(datetime.utcnow() - start_datetime).tota
 # Initialize the Flask application
 app = Flask(__name__)
 app.logger = logger
+
+
+def download_blob(bucket_name, blob_name):
+    """Downloads a blob from the bucket."""
+    logger.info(' [x] pulling data from bucket {} blob {}'.format(bucket_name, blob_name))
+    storage_client = storage.Client()
+    bucket = storage_client.get_bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+    source_data = blob.download_as_string()
+    logger.info(' [x] bucket {} blob {} downloaded len: {}'.format(bucket_name, blob_name, len(source_data)))
+    return source_data
 
 
 # route http posts to this method
@@ -46,8 +59,8 @@ def url():
         response = add_spider_task(task)
         app.logger.info('* task added: {}'.format(task))
     except Exception as err:
-        import traceback
         app.logger.exception(err)
+        import traceback
         response = {'type': 'error', 'error': traceback.format_exc().splitlines()[-1], 'url': request_url}
         status = 400
     json_response = json.dumps(response)
@@ -94,14 +107,26 @@ def add_spider_task(task):
 def get_url(identifier):
     """
     build a response dict to send back to client
-    encode response using jsonpickle
+    encode response using json
     """
-    response = common.get_job_redis().get(identifier)
-    if response is None:
+    try:
+        response = common.get_job_redis().get(identifier)
+        if response is not None:
+            status = 200
+            response = json.loads(response)
+        else:
+            response = download_blob(common.USER_BUCKET, f'data/{identifier}.json')
+            status = 200
+            response = json.loads(response)
+    except NotFound as err:
+        app.logger.exception(err)
+        response = {'type': 'error', 'error': 'not found', 'identifier': identifier}
         status = 404
-    else:
-        status = 200
-        response = json.loads(response)
+    except Exception as err:
+        app.logger.exception(err)
+        import traceback
+        response = {'type': 'error', 'error': traceback.format_exc().splitlines()[-1], 'identifier': identifier}
+        status = 400
     json_response = json.dumps(response)
     return Response(response=json_response, status=status, mimetype="application/json")
 
@@ -110,8 +135,8 @@ def get_url(identifier):
 @app.route('/api/stats', methods=['GET'], endpoint='get_stats')
 def get_stats():
     """
-    build a response dict to send back to client
-    encode response using jsonpickle
+    build a response list to send back to client with times of page loads
+    encode response using json
     """
     status = 200
     response = {'status': 'OK', 'data': list(), 'total': 0}
@@ -126,6 +151,35 @@ def get_stats():
     except Exception as err:
         import traceback
         app.logger.exception(err)
+        response = {'type': 'error', 'error': traceback.format_exc().splitlines()[-1]}
+        status = 400
+    json_response = json.dumps(response)
+    return Response(response=json_response, status=status, mimetype='application/json')
+
+
+# route http get to this method
+@app.route('/api/queues', methods=['GET'], endpoint='get_queues')
+def get_queues():
+    """
+    build a response list of current queues
+    encode response using json
+    """
+    status = 200
+    response = {'status': 'OK', 'queues': list(), 'total': 0}
+    app.logger.info('* get queues')
+    try:
+        credentials = pika.PlainCredentials('guest', 'guest')
+        connection = pika.BlockingConnection(pika.ConnectionParameters(host='rabbitmq', credentials=credentials))
+        channel = connection.channel()
+        for queue_name in ('spider_queue', 'scan_queue', 'cleanup_queue'):
+            queue = channel.queue_declare(queue=queue_name, durable=True)
+            queue_count = queue.method.message_count
+            response['total'] += queue_count
+            response['queues'].append({'queue': queue_name, 'count': queue_count})
+        connection.close()
+    except Exception as err:
+        app.logger.exception(err)
+        import traceback
         response = {'type': 'error', 'error': traceback.format_exc().splitlines()[-1]}
         status = 400
     json_response = json.dumps(response)

@@ -20,6 +20,7 @@ def main():
     group.add_argument('--target', type=str, help='target url')
     group.add_argument('--uuid', type=str, help='uuid')
     group.add_argument('--stats', action='store_true', default=False, help='stats')
+    group.add_argument('--queues', action='store_true', default=False, help='queues')
     args = parser.parse_args()
 
     try:
@@ -27,6 +28,8 @@ def main():
             response = requests.post(f'http://{args.url}/api/url', json={'url': args.target})
         elif args.uuid:
             response = requests.get(f'http://{args.url}/api/url/{args.uuid}')
+        elif args.queues:
+            response = requests.get(f'http://{args.url}/api/queues')
         else:
             response = requests.get(f'http://{args.url}/api/stats')
     except requests.exceptions.RequestException as err:

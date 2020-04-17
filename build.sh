@@ -23,6 +23,7 @@ PREFIX="term-project"
 CONTROLLER="${PREFIX}-controller"
 SCAN="${PREFIX}-scanner"
 SPIDER="${PREFIX}-spider"
+CLEANER="${PREFIX}-cleaner"
 
 HOST="us.gcr.io"
 
@@ -30,13 +31,16 @@ docker build -t "local/${PREFIX}-${BASE}" ${BASE}/
 docker build -t "${CONTROLLER}" controller/
 docker build -t "${SPIDER}" spider/
 docker build -t "${SCAN}" scanner/
+docker build -t "${CLEANER}" cleaner/
 
 if [ ! -z "${PROJECT}" ]; then
   docker tag "${CONTROLLER}" "${HOST}/${PROJECT}/${CONTROLLER}"
   docker tag "${SCAN}" "${HOST}/${PROJECT}/${SCAN}"
   docker tag "${SPIDER}" "${HOST}/${PROJECT}/${SPIDER}"
+  docker tag "${CLEANER}" "${HOST}/${PROJECT}/${CLEANER}"
 
   docker push "${HOST}/${PROJECT}/${CONTROLLER}:${TAG}"
   docker push "${HOST}/${PROJECT}/${SCAN}:${TAG}"
   docker push "${HOST}/${PROJECT}/${SPIDER}:${TAG}"
+  docker push "${HOST}/${PROJECT}/${CLEANER}:${TAG}"
 fi

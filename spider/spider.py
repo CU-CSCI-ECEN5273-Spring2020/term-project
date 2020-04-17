@@ -15,7 +15,9 @@ from urllib.robotparser import RobotFileParser
 import pika
 import requests
 import common
-from google.cloud import storage
+from google.cloud import storage, bigtable
+from google.cloud.bigtable import column_family
+from google.cloud.bigtable import row_filters
 
 start_datetime = datetime.utcnow()
 logger = common.setup_logger(__name__)
@@ -28,9 +30,31 @@ if not common.wait_for_connection(logger):
 USER_AGENT = 'asynchronousgillz, 1.1; requests, {}'.format(requests.__version__)
 USER_DELAY = 10
 USER_DEPTH = 1
-USER_BUCKET = 'term-project'
 MAX_DEPTH = 5
 MAX_PULL_COUNT = 20
+BT_INSTANCE = 'term-project-test-west-1'
+
+
+def create_big_table(table_id):
+    client = bigtable.Client()
+    instance = client.instance(BT_INSTANCE)
+
+    logger.info('Creating the {} table.'.format(table_id))
+    table = instance.table(table_id)
+
+    logger.info('Creating column family cf1 with Max Version GC rule...')
+    max_versions_rule = column_family.MaxVersionsGCRule(2)
+    column_family_id = 'cf1'
+    column_families = {column_family_id: max_versions_rule}
+    if not table.exists():
+        table.create(column_families=column_families)
+    else:
+        raise ValueError(f'Table {table_id} already made....')
+
+
+def upload_to_big_table(table_id):
+    client = bigtable.Client()
+    instance = client.instance(BT_INSTANCE)
 
 
 def upload_blob(bucket_name, source_data, destination_blob_name):
@@ -98,14 +122,14 @@ def pull_data(identifier, correlation, task, domain_data):
     try:
         logger.info(' [x] {} GET {}'.format(identifier, task['url']))
         response = requests.get(task['url'], headers={'user-agent': USER_AGENT})
+        if response.status_code < 500:
+            h = common.domain_hash(correlation, task['url'])
+            common.get_domain_redis().set(h, identifier)
+            logger.info(' [x] {} hash {} {} set'.format(identifier, task['url'], h))
         response.raise_for_status()
     except requests.exceptions.RequestException as err:
-        logger.exception(' [x] {} {} {}'.format(identifier, task['url'], err))
+        logger.error(' [x] {} {} {}'.format(identifier, task['url'], err))
         raise err
-    else:
-        h = common.domain_hash(correlation, task['url'])
-        common.get_domain_redis().set(h, identifier)
-        logger.info(' [x] {} hash {} {} set'.format(identifier, task['url'], h))
     finally:
         logger.info(' [x] {} {} {} {} {}'.format(identifier, task['url'], response.request.method, response.status_code, response.elapsed.total_seconds()))
         logger.debug(' [x] {} {} {}'.format(identifier, task['url'], response.text))
@@ -166,21 +190,19 @@ def callback(ch, method, properties, body):
         domain_data = check_robots(identifier, task)
         status = 'spider-crawled'
         response = pull_data(identifier, correlation, task, domain_data)
-        blob_name = '{}.html'.format(identifier)
-        upload_blob(USER_BUCKET, response.text, blob_name)
+        blob_name = 'html/{}.html'.format(identifier)
+        upload_blob(common.USER_BUCKET, response.text, blob_name)
         data_message = {
             'method': response.request.method,
             'code': response.status_code,
             'time': response.elapsed.total_seconds(),
-            'local': 'gs://{}/{}'.format(USER_BUCKET, blob_name),
+            'local': 'gs://{}/{}'.format(common.USER_BUCKET, blob_name),
             'depth': domain_data['depth'] + 1,
             'type': 'scan'
         }
         query_data_key = 'domain.{}.{}'.format(domain_data['domain'], identifier)
         response_data = {
-            'method': response.request.method,
-            'code': response.status_code,
-            'time': response.elapsed.total_seconds(),
+            'duration': response.elapsed.total_seconds(),
             'timestamp': datetime.utcnow().isoformat(),
             'url': task['url']
         }

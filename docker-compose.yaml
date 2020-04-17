@@ -19,6 +19,8 @@ services:
   controller:
     build: controller
     image: 'term-project-controller'
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: '/usr/src/app/term-project.json'
     ports:
       - '5000'
     depends_on:
@@ -39,6 +41,16 @@ services:
   spider:
     build: spider
     image: 'term-project-spider'
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: '/usr/src/app/term-project.json'
+    depends_on:
+      - base
+      - rabbitmq
+      - redis
+
+  cleaner:
+    build: cleaner
+    image: 'term-project-cleaner'
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: '/usr/src/app/term-project.json'
     depends_on:
