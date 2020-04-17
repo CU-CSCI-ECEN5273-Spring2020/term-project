@@ -16,6 +16,7 @@ A specific list of software and hardware components
 + `contoller` - flask web service to request web site crawling to and search requests
 + `web_bots` - takes a task off of RabbitMQ (web-site urls) to then search
 + `scan_bots` - takes a task off of RabbitMQ (web-data blocks) to scan for more links and then update
++ `cleaner` - takes items off of the cache and moves them to storage
 
 [diagram]: /term-project.png "Diagram"
 
