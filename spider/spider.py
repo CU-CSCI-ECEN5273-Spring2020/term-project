@@ -16,8 +16,6 @@ import pika
 import requests
 import common
 from google.cloud import storage, bigtable
-from google.cloud.bigtable import column_family
-from google.cloud.bigtable import row_filters
 
 start_datetime = datetime.utcnow()
 logger = common.setup_logger(__name__)
@@ -33,28 +31,6 @@ USER_DEPTH = 1
 MAX_DEPTH = 5
 MAX_PULL_COUNT = 20
 BT_INSTANCE = 'term-project-test-west-1'
-
-
-def create_big_table(table_id):
-    client = bigtable.Client()
-    instance = client.instance(BT_INSTANCE)
-
-    logger.info('Creating the {} table.'.format(table_id))
-    table = instance.table(table_id)
-
-    logger.info('Creating column family cf1 with Max Version GC rule...')
-    max_versions_rule = column_family.MaxVersionsGCRule(2)
-    column_family_id = 'cf1'
-    column_families = {column_family_id: max_versions_rule}
-    if not table.exists():
-        table.create(column_families=column_families)
-    else:
-        raise ValueError(f'Table {table_id} already made....')
-
-
-def upload_to_big_table(table_id):
-    client = bigtable.Client()
-    instance = client.instance(BT_INSTANCE)
 
 
 def upload_blob(bucket_name, source_data, destination_blob_name):
@@ -104,17 +80,9 @@ def pull_data(identifier, correlation, task, domain_data):
     Pull the html data
     """
     domain = domain_data['domain']
-    domain_lock_try_count = 1
-    for domain_lock_try_count in range(1, MAX_PULL_COUNT):
-        domain_data = json.loads(common.get_domain_redis().get(domain))
-        if domain_data['lock']:
-            sleep_time = (domain_lock_try_count ** 2) + randint(1, 5)
-            logger.info(' [x] {} lock unavailable for domain {} retry in {} seconds'.format(identifier, domain, sleep_time))
-            time.sleep(sleep_time)
-        else:
-            break
-    if domain_lock_try_count >= MAX_PULL_COUNT - 1:
-        raise StopIteration(' [x] {} failed to obtain lock for domain {}'.format(identifier, domain_data['domain']))
+    domain_data = json.loads(common.get_domain_redis().get(domain))
+    if domain_data['lock']:
+        raise ResourceWarning(f'{identifier} lock unavailable for domain {domain}, skipping')
     domain_data['lock'] = True
     common.get_domain_redis().set(domain, json.dumps(domain_data))
     logger.info(' [x] {} lock acquired for domain {}'.format(identifier, domain_data['domain']))
@@ -209,6 +177,10 @@ def callback(ch, method, properties, body):
         common.get_stats_redis().set(query_data_key, json.dumps(response_data))
         results.update(data_message)
         valid_scan_task = True
+    except ResourceWarning as err:
+        logger.info(' [x] '.format(str(err)))
+        ch.basic_reject(delivery_tag=method.delivery_tag)
+        return
     except StopIteration as err:
         logger.info(' [x] {} depth limited {}'.format(message['identifier'], str(err)))
         status = 'limited'
