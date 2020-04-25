@@ -34,10 +34,10 @@ docker build -t "${SCAN}" scanner/
 docker build -t "${CLEANER}" cleaner/
 
 if [ ! -z "${PROJECT}" ]; then
-  docker tag "${CONTROLLER}" "${HOST}/${PROJECT}/${CONTROLLER}"
-  docker tag "${SCAN}" "${HOST}/${PROJECT}/${SCAN}"
-  docker tag "${SPIDER}" "${HOST}/${PROJECT}/${SPIDER}"
-  docker tag "${CLEANER}" "${HOST}/${PROJECT}/${CLEANER}"
+  docker tag "${CONTROLLER}" "${HOST}/${PROJECT}/${CONTROLLER}:${TAG}"
+  docker tag "${SCAN}" "${HOST}/${PROJECT}/${SCAN}:${TAG}"
+  docker tag "${SPIDER}" "${HOST}/${PROJECT}/${SPIDER}:${TAG}"
+  docker tag "${CLEANER}" "${HOST}/${PROJECT}/${CLEANER}:${TAG}"
 
   docker push "${HOST}/${PROJECT}/${CONTROLLER}:${TAG}"
   docker push "${HOST}/${PROJECT}/${SCAN}:${TAG}"
