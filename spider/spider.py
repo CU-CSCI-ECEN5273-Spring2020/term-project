@@ -15,7 +15,7 @@ from urllib.robotparser import RobotFileParser
 import pika
 import requests
 import common
-from google.cloud import storage, bigtable
+from google.cloud import storage
 
 start_datetime = datetime.utcnow()
 logger = common.setup_logger(__name__)
@@ -25,7 +25,7 @@ if not common.wait_for_connection(logger):
     sys.exit(1)
 
 
-USER_AGENT = 'asynchronousgillz, 1.1; requests, {}'.format(requests.__version__)
+USER_AGENT = f'asynchronousgillz, 1.1; requests, {requests.__version__};'
 USER_DELAY = 10
 USER_DEPTH = 1
 MAX_DEPTH = 5
@@ -68,7 +68,7 @@ def check_robots(identifier, task):
         }
         logger.info(' [x] {} saved domain data {}'.format(identifier, task['domain']))
         logger.debug(' [x] {} domain data {}'.format(identifier, domain_data))
-        common.get_domain_redis().set(task['domain'], json.dumps(domain_data))
+        common.get_domain_redis().set(task['domain'], json.dumps(domain_data), ex=120)
         logger.info(' [x] {} {} validation results {}'.format(identifier, url, valid_url))
         if not valid_url:
             raise ValueError('robot.txt rule validation failed')
@@ -81,7 +81,7 @@ def pull_data(identifier, correlation, task, domain_data):
     """
     domain = domain_data['domain']
     domain_data = json.loads(common.get_domain_redis().get(domain))
-    if domain_data['lock']:
+    if not domain_data or domain_data['lock']:
         raise ResourceWarning(f'{identifier} lock unavailable for domain {domain}, skipping')
     domain_data['lock'] = True
     common.get_domain_redis().set(domain, json.dumps(domain_data))
@@ -178,7 +178,8 @@ def callback(ch, method, properties, body):
         results.update(data_message)
         valid_scan_task = True
     except ResourceWarning as err:
-        logger.info(' [x] '.format(str(err)))
+        logger.info(f' [x] {err}')
+        time.sleep(randint(task['depth']) ** 2)
         ch.basic_reject(delivery_tag=method.delivery_tag)
         return
     except StopIteration as err:
@@ -207,7 +208,7 @@ def callback(ch, method, properties, body):
 
 def main():
     ip_addr = socket.gethostbyname(socket.gethostname())
-    logger.info(' [*] ip address is: {}'.format(ip_addr))
+    logger.info(f' [*] ip address is: {ip_addr}')
     logger.info(f' [*] startup time took, {(datetime.utcnow() - start_datetime).total_seconds()} seconds')
 
     credentials = pika.PlainCredentials('guest', 'guest')

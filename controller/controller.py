@@ -32,6 +32,20 @@ app = Flask(__name__)
 app.logger = logger
 
 
+# route http get to this method
+@app.route('/api/status', methods=['GET'], endpoint='get_status')
+def get_status():
+    """
+    Get the status of the system
+    """
+    status = 200
+    response = {
+        'redis': common.get_stats_redis().info()
+    }
+    json_response = json.dumps(response)
+    return Response(response=json_response, status=status, mimetype="application/json")
+
+
 def download_blob(bucket_name, blob_name):
     """Downloads a blob from the bucket."""
     logger.info(' [x] pulling data from bucket {} blob {}'.format(bucket_name, blob_name))

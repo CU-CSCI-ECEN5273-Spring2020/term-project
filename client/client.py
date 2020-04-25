@@ -21,6 +21,7 @@ def main():
     group.add_argument('--uuid', type=str, help='uuid')
     group.add_argument('--stats', action='store_true', default=False, help='stats')
     group.add_argument('--queues', action='store_true', default=False, help='queues')
+    group.add_argument('--status', action='store_true', default=False, help='status')
     args = parser.parse_args()
 
     try:
@@ -30,6 +31,8 @@ def main():
             response = requests.get(f'http://{args.url}/api/url/{args.uuid}')
         elif args.queues:
             response = requests.get(f'http://{args.url}/api/queues')
+        elif args.status:
+            response = requests.get(f'http://{args.url}/api/status')
         else:
             response = requests.get(f'http://{args.url}/api/stats')
     except requests.exceptions.RequestException as err:
