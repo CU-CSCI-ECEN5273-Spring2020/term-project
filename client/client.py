@@ -39,8 +39,13 @@ def main():
         print(err, file=sys.stderr)
         sys.exit(1)
 
-    print(f'{response.request.method} response code is {response.status_code} seconds {response.elapsed.total_seconds()}')
-    print(f'{json.dumps(response.json(), indent=2, sort_keys=True)}')
+    print(f'{response.request.method} response code is {response.status_code} seconds {response.elapsed.total_seconds()}', file=sys.stderr)
+    if args.stats:
+        print('timestamp,url,duration')
+        for e in response.json()['data']:
+            print('{},{},{}'.format(e['timestamp'], e['url'], e['duration']))
+    else:
+        print(f'{json.dumps(response.json(), indent=2, sort_keys=True)}')
 
 
 if __name__ == '__main__':

@@ -84,7 +84,7 @@ def pull_data(identifier, correlation, task, domain_data):
     if not domain_data or domain_data['lock']:
         raise ResourceWarning(f'{identifier} lock unavailable for domain {domain}, skipping')
     domain_data['lock'] = True
-    common.get_domain_redis().set(domain, json.dumps(domain_data))
+    common.get_domain_redis().set(domain, json.dumps(domain_data), ex=120)
     logger.info(' [x] {} lock acquired for domain {}'.format(identifier, domain_data['domain']))
     response = None
     try:
@@ -104,7 +104,7 @@ def pull_data(identifier, correlation, task, domain_data):
         logger.info(' [x] {} lock sleep {} seconds for domain {}'.format(identifier, domain_data['crawl_delay'], domain_data['domain']))
         time.sleep(domain_data['crawl_delay'])
         domain_data['lock'] = False
-        common.get_domain_redis().set(domain, json.dumps(domain_data))
+        common.get_domain_redis().set(domain, json.dumps(domain_data), ex=120)
         logger.debug(' [x] {} {} {}'.format(identifier, task['url'], response.text))
         logger.info(' [x] {} lock released for domain {}'.format(identifier, domain_data['domain']))
     return response
@@ -179,7 +179,7 @@ def callback(ch, method, properties, body):
         valid_scan_task = True
     except ResourceWarning as err:
         logger.info(f' [x] {err}')
-        time.sleep(randint(task['depth']) ** 2)
+        time.sleep(randint(1, task['depth']) ** 2)
         ch.basic_reject(delivery_tag=method.delivery_tag)
         return
     except StopIteration as err:
