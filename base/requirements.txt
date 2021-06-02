@@ -26,7 +26,7 @@ pika==1.1.0
 requests==2.22.0
 rsa==4.0
 six==1.12.0
-urllib3==1.25.6
+urllib3==1.26.5
 Werkzeug==0.16.0
 beautifulsoup4==4.8.1
 opentracing==2.3.0
